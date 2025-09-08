@@ -4,66 +4,85 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.nio.file.*;
 import java.util.*;
-import org.json.JSONObject;
 
-public class PolynomialSolverr {
+public class PolynomialSolver {
 
     public static void main(String[] args) throws Exception {
-        // 1. Read JSON file (from argument or default)
+        // 1. Read JSON file
         String path = (args.length > 0) ? args[0] : "input.json";
         String content = new String(Files.readAllBytes(Paths.get(path)));
-        JSONObject json = new JSONObject(content);
 
-        // 2. Extract n, k
-        int n = json.getJSONObject("keys").getInt("n");
-        int k = json.getJSONObject("keys").getInt("k");
+        // 2. Parse n and k
+        int n = extractInt(content, "\"n\"");
+        int k = extractInt(content, "\"k\"");
 
-        // 3. Collect points (x, y)
+        // 3. Parse points
         List<BigInteger> xs = new ArrayList<>();
         List<BigInteger> ys = new ArrayList<>();
 
-        for (String key : json.keySet()) {
-            if (key.equals("keys")) continue;
-            int base = Integer.parseInt(json.getJSONObject(key).getString("base"));
-            String valStr = json.getJSONObject(key).getString("value");
+        for (int i = 1; i <= n; i++) {
+            String baseKey = "\"base\"";
+            String valueKey = "\"value\"";
+            String section = extractSection(content, "\"" + i + "\"");
+            int base = Integer.parseInt(extractString(section, baseKey));
+            String valStr = extractString(section, valueKey);
             BigInteger value = new BigInteger(valStr, base);
-            xs.add(new BigInteger(key));   // x = the index itself (1,2,3,...)
-            ys.add(value);                 // y = decoded value
+            xs.add(BigInteger.valueOf(i));
+            ys.add(value);
         }
 
-        // 4. Use first k points to interpolate polynomial
+        // 4. Lagrange interpolation to find c
         BigInteger c = lagrangeInterpolation(xs.subList(0, k), ys.subList(0, k));
-
         System.out.println("c = " + c);
     }
 
-    // Lagrange interpolation at x = 0 to find constant term
+    // Extract integer after key
+    private static int extractInt(String s, String key) {
+        int idx = s.indexOf(key) + key.length() + 1;
+        int end = s.indexOf(",", idx);
+        if (end == -1) end = s.indexOf("}", idx);
+        return Integer.parseInt(s.substring(idx, end).replaceAll("[^0-9]", ""));
+    }
+
+    // Extract string between quotes after key
+    private static String extractString(String s, String key) {
+        int idx = s.indexOf(key) + key.length() + 2;
+        int start = s.indexOf("\"", idx) + 1;
+        int end = s.indexOf("\"", start);
+        return s.substring(start, end);
+    }
+
+    // Extract section for a given key
+    private static String extractSection(String s, String key) {
+        int start = s.indexOf(key);
+        int braceCount = 0;
+        int end = start;
+        for (int i = start; i < s.length(); i++) {
+            if (s.charAt(i) == '{') braceCount++;
+            if (s.charAt(i) == '}') braceCount--;
+            if (braceCount == 0 && i > start) { end = i + 1; break; }
+        }
+        return s.substring(start, end);
+    }
+
+    // Lagrange interpolation at x=0
     private static BigInteger lagrangeInterpolation(List<BigInteger> xs, List<BigInteger> ys) {
         BigDecimal result = BigDecimal.ZERO;
-
         for (int i = 0; i < xs.size(); i++) {
             BigInteger xi = xs.get(i);
             BigInteger yi = ys.get(i);
-
-            // Compute L_i(0)
             BigInteger num = BigInteger.ONE;
             BigInteger den = BigInteger.ONE;
-
             for (int j = 0; j < xs.size(); j++) {
                 if (i == j) continue;
                 BigInteger xj = xs.get(j);
                 num = num.multiply(xj.negate());
                 den = den.multiply(xi.subtract(xj));
             }
-
-            // Use BigDecimal division for large numbers
-            BigDecimal term = new BigDecimal(yi)
-                    .multiply(new BigDecimal(num))
+            BigDecimal term = new BigDecimal(yi).multiply(new BigDecimal(num))
                     .divide(new BigDecimal(den), MathContext.DECIMAL128);
-
             result = result.add(term);
         }
-
-        return result.toBigInteger(); // convert back to BigInteger
+        return result.toBigInteger();
     }
 }
