@@ -6,88 +6,85 @@ import java.util.*;
 import java.util.regex.*;
 
 public class PolynomialSolverNoDeps {
+
     public static void main(String[] args) throws IOException {
-        String path = (args.length>0)? args[0] : "input.json";
+        // 1. Read JSON content
+        String path = (args.length > 0) ? args[0] : "input.json";
         String content = new String(Files.readAllBytes(Paths.get(path)));
 
-        // find n and k
-        int n = findIntField(content, "\"n\"");
+        // 2. Extract k
         int k = findIntField(content, "\"k\"");
         if (k <= 0) {
-            System.err.println("Couldn't find 'k' in JSON.");
+            System.err.println("Error: 'k' not found or invalid in JSON.");
             return;
         }
 
-        // find all entries like "1": { "base": "10", "value": "4" }
-        Pattern p = Pattern.compile("\"(\\d+)\"\\s*:\\s*\\{[^}]*?\"base\"\\s*:\\s*\"(\\d+)\"[^}]*?\"value\"\\s*:\\s*\"([0-9a-zA-Z]+)\"[^}]*?\\}", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-        Matcher m = p.matcher(content);
+        // 3. Extract root entries
+        Pattern entryPattern = Pattern.compile(
+            "\"(\\d+)\"\\s*:\\s*\\{[^}]*?\"base\"\\s*:\\s*\"(\\d+)\"[^}]*?\"value\"\\s*:\\s*\"([0-9a-zA-Z]+)\"[^}]*?\\}",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL
+        );
+        Matcher matcher = entryPattern.matcher(content);
 
-        TreeMap<Integer, String[]> map = new TreeMap<>();
-        while (m.find()) {
-            int idx = Integer.parseInt(m.group(1));
-            String base = m.group(2);
-            String value = m.group(3);
-            map.put(idx, new String[]{base, value});
+        TreeMap<Integer, String[]> rootMap = new TreeMap<>();
+        while (matcher.find()) {
+            int idx = Integer.parseInt(matcher.group(1));
+            String base = matcher.group(2);
+            String value = matcher.group(3);
+            rootMap.put(idx, new String[]{base, value});
         }
 
-        if (map.size() == 0) {
-            System.err.println("No root entries found. Check JSON format.");
+        if (rootMap.isEmpty()) {
+            System.err.println("Error: No root entries found in JSON.");
             return;
         }
 
-        // decode first k roots (by ascending numeric key)
+        // 4. Decode first k roots
         List<BigInteger> roots = new ArrayList<>();
-        for (Map.Entry<Integer, String[]> e : map.entrySet()) {
+        for (Map.Entry<Integer, String[]> entry : rootMap.entrySet()) {
             if (roots.size() >= k) break;
-            String baseS = e.getValue()[0];
-            String valS = e.getValue()[1];
             try {
-                int base = Integer.parseInt(baseS);
-                BigInteger dec = new BigInteger(valS, base);
-                roots.add(dec);
-            } catch (NumberFormatException ex) {
-                System.err.println("Failed to parse value '" + valS + "' with base " + baseS + " for entry " + e.getKey());
+                int base = Integer.parseInt(entry.getValue()[0]);
+                BigInteger decoded = new BigInteger(entry.getValue()[1], base);
+                roots.add(decoded);
+            } catch (NumberFormatException e) {
+                System.err.println("Error: Failed to parse value '" +
+                        entry.getValue()[1] + "' with base " + entry.getValue()[0]);
                 return;
             }
         }
 
         if (roots.size() < k) {
-            System.err.println("Found only " + roots.size() + " roots but k=" + k);
+            System.err.println("Error: Found only " + roots.size() + " roots but k=" + k);
             return;
         }
 
-        System.out.println("Decoded roots (first " + k + "): " + roots);
+        // 5. Construct polynomial
+        List<BigInteger> coefficients = new ArrayList<>();
+        coefficients.add(BigInteger.ONE); // Start with "1"
 
-        // Build polynomial coefficients (descending order). Start with [1] (degree 0)
-        List<BigInteger> coeffs = new ArrayList<>();
-        coeffs.add(BigInteger.ONE); // represents polynomial 1
-
-        for (BigInteger r : roots) {
-            coeffs = multiplyByFactor(coeffs, r.negate()); // multiply by (x - r)
+        for (BigInteger root : roots) {
+            coefficients = multiplyByFactor(coefficients, root);
         }
 
-        // print coefficients (descending: highest-degree ... constant)
-        System.out.println("Polynomial coefficients (descending): " + coeffs);
-        System.out.println("Constant term c = " + coeffs.get(coeffs.size()-1));
+        // 6. Print only the constant term
+        System.out.println(coefficients.get(coefficients.size() - 1));
     }
 
     private static int findIntField(String s, String fieldName) {
         Pattern p = Pattern.compile(fieldName + "\\s*[:\"]*\\s*(\\d+)");
         Matcher m = p.matcher(s);
-        if (m.find()) return Integer.parseInt(m.group(1));
-        return -1;
+        return (m.find()) ? Integer.parseInt(m.group(1)) : -1;
     }
 
-    // coeffs: list of size m+1 representing degree m, index 0 => coeff of x^m, last => const
-    private static List<BigInteger> multiplyByFactor(List<BigInteger> coeffs, BigInteger negRoot) {
-        int oldSize = coeffs.size(); // m+1
-        List<BigInteger> next = new ArrayList<>(Collections.nCopies(oldSize + 1, BigInteger.ZERO));
+    private static List<BigInteger> multiplyByFactor(List<BigInteger> coeffs, BigInteger root) {
+        int oldSize = coeffs.size();
+        List<BigInteger> result = new ArrayList<>(Collections.nCopies(oldSize + 1, BigInteger.ZERO));
+
         for (int i = 0; i < oldSize; i++) {
-            // multiply by x contribution
-            next.set(i, next.get(i).add(coeffs.get(i)));
-            // multiply by -r contribution (negRoot = -r)
-            next.set(i + 1, next.get(i + 1).add(coeffs.get(i).multiply(negRoot)));
+            result.set(i, result.get(i).add(coeffs.get(i))); // x term
+            result.set(i + 1, result.get(i + 1).subtract(coeffs.get(i).multiply(root))); // -root term
         }
-        return next;
+        return result;
     }
 }
